@@ -1,13 +1,20 @@
+# NBA Performance and Player Segmentation
+# Four Factors, win probability modeling, and k-means player clustering
+
 library(hoopR)
 library(tidyverse)
 
-# STEP 1
+
+# NBA FOUR FACTORS ANALYSIS
 
 nba_2025 <- load_nba_team_box(seasons = 2025) |>
   filter(season_type == 2)
 
 nba_2026 <- load_nba_team_box(seasons = 2026) |>
   filter(season_type == 2)
+
+
+# Calculate Four Factors and league rankings
 
 four_factors <- function(data) {
   
@@ -54,8 +61,12 @@ four_factors <- function(data) {
     )
 }
 
+
 nba_2025_factors <- four_factors(nba_2025)
 nba_2026_factors <- four_factors(nba_2026)
+
+
+# Chicago Bulls Four Factors
 
 bulls_2025 <- nba_2025_factors |>
   filter(team_abbreviation == "CHI") |>
@@ -93,10 +104,14 @@ bulls_2025
 bulls_2026
 
 
-# STEP 2
+
+# WIN PROBABILITY MODEL
 
 nba_model_data <- load_nba_team_box(seasons = 2021:2025) |>
   filter(season_type == 2)
+
+
+# Add opponent defensive rebounds for offensive rebound percentage
 
 opponent_rebounds <- nba_model_data |>
   select(game_id, team_id, defensive_rebounds) |>
@@ -105,6 +120,9 @@ opponent_rebounds <- nba_model_data |>
     opponent_defensive_rebounds = defensive_rebounds
   )
 
+
+# Create game-level Four Factors
+
 nba_games <- nba_model_data |>
   left_join(
     opponent_rebounds,
@@ -112,21 +130,27 @@ nba_games <- nba_model_data |>
   ) |>
   mutate(
     win = if_else(team_winner == TRUE, 1, 0),
+    
     efg_pct =
       (field_goals_made +
          0.5 * three_point_field_goals_made) /
       field_goals_attempted,
+    
     possessions =
       field_goals_attempted -
       offensive_rebounds +
       turnovers +
       (0.44 * free_throws_attempted),
+    
     tov_pct = turnovers / possessions,
+    
     oreb_pct =
       offensive_rebounds /
       (offensive_rebounds + opponent_defensive_rebounds),
+    
     fta_rate =
-      free_throws_attempted / field_goals_attempted
+      free_throws_attempted /
+      field_goals_attempted
   ) |>
   drop_na(
     win,
@@ -136,6 +160,8 @@ nba_games <- nba_model_data |>
     fta_rate
   )
 
+# Logistic regression predicting game outcome
+
 win_model <- glm(
   win ~ efg_pct + oreb_pct + tov_pct + fta_rate,
   data = nba_games,
@@ -143,6 +169,9 @@ win_model <- glm(
 )
 
 summary(win_model)
+
+
+# Apply model to 2025 Bulls games
 
 bulls_games_2025 <- nba_games |>
   filter(
@@ -156,11 +185,27 @@ bulls_games_2025$win_probability <- predict(
   type = "response"
 )
 
-sum(bulls_games_2025$win)
-sum(bulls_games_2025$win_probability)
+
+# Compare actual wins to model expected wins
+
+bulls_win_comparison <- tibble(
+  actual_wins = sum(bulls_games_2025$win),
+  expected_wins = sum(bulls_games_2025$win_probability)
+)
+
+bulls_win_comparison
 
 
-# STEP 3
+# Compare actual wins to model expected wins
+
+bulls_win_comparison <- tibble(
+  actual_wins = sum(bulls_games_2025$win),
+  expected_wins = sum(bulls_games_2025$win_probability)
+)
+
+bulls_win_comparison
+
+# NBA PLAYER CLUSTERING
 
 nba_players <- load_nba_player_box(seasons = 2021:2026)
 
@@ -169,6 +214,9 @@ nba_players_reg <- nba_players |>
     season_type == 2,
     did_not_play == FALSE
   )
+
+
+# Create player-season statistical profiles
 
 player_seasons <- nba_players_reg |>
   group_by(
@@ -203,6 +251,9 @@ player_seasons <- nba_players_reg |>
     pts_per36 = (pts / minutes) * 36
   )
 
+
+# Select and standardize clustering variables
+
 cluster_data <- player_seasons |>
   select(
     efg_pct,
@@ -216,6 +267,8 @@ cluster_data <- player_seasons |>
   drop_na()
 
 cluster_scaled <- scale(cluster_data)
+
+# ELBOW METHOD
 
 set.seed(9019)
 
@@ -233,10 +286,12 @@ for (k in 2:10) {
   wss[k - 1] <- model$tot.withinss
 }
 
-elbow_data <- data.frame(
+
+elbow_data <- tibble(
   clusters = 2:10,
   wss = wss
 )
+
 
 ggplot(
   elbow_data,
@@ -252,6 +307,10 @@ ggplot(
   ) +
   theme_minimal()
 
+
+
+# K-MEANS PLAYER SEGMENTATION
+
 set.seed(9019)
 
 player_kmeans <- kmeans(
@@ -260,6 +319,7 @@ player_kmeans <- kmeans(
   nstart = 25,
   iter.max = 100
 )
+
 
 player_results <- player_seasons |>
   drop_na(
@@ -275,6 +335,9 @@ player_results <- player_seasons |>
     cluster = factor(player_kmeans$cluster)
   )
 
+
+# Summarize statistical profile of each cluster
+
 cluster_summary <- player_results |>
   group_by(cluster) |>
   summarise(
@@ -285,13 +348,13 @@ cluster_summary <- player_results |>
     tov_rate = mean(tov_rate),
     orb_per36 = mean(orb_per36),
     ast_per36 = mean(ast_per36),
-    pts_per36 = mean(pts_per36)
+    pts_per36 = mean(pts_per36),
+    .groups = "drop"
   )
 
 cluster_summary
 
-
-# STEP 4
+# CHICAGO BULLS PLAYER TYPES
 
 bulls_players_2026 <- nba_players |>
   filter(
@@ -303,6 +366,7 @@ bulls_players_2026 <- nba_players |>
     athlete_id,
     athlete_display_name
   )
+
 
 bulls_roster <- player_results |>
   filter(season == 2026) |>
@@ -338,8 +402,38 @@ bulls_roster <- player_results |>
 
 bulls_roster
 
+
+# Number of Bulls players in each player type
+
 bulls_roster |>
   count(
     player_type,
     sort = TRUE
   )
+
+# BULLS PLAYER TYPE VISUALIZATION
+
+ggplot(
+  bulls_roster,
+  aes(
+    x = ast_per36,
+    y = pts_per36,
+    label = athlete_display_name,
+    color = player_type
+  )
+) +
+  geom_point(size = 4) +
+  geom_text(
+    nudge_y = 0.5,
+    check_overlap = TRUE,
+    show.legend = FALSE
+  ) +
+  scale_x_continuous(expand = expansion(mult = c(0.12, 0.05))) +
+  labs(
+    title = "Chicago Bulls Player Types",
+    subtitle = "2026 Player Segmentation Using K-Means Clustering",
+    x = "Assists per 36 Minutes",
+    y = "Points per 36 Minutes",
+    color = "Player Type"
+  ) +
+  theme_minimal()
